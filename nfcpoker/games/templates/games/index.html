@@ -1,26 +1,112 @@
 {% extends 'base.html' %}
-{% block content %}
 {% load static %}
-<div class="p-3">
-  <div class="container">
-    <div class="row mt-3">
-      <div class="col mx-auto mb-3">
-        <h2>List of Games</h2>
-        <hr />
+
+{% block content %}
+<div class="container mt-4">
+  <div class="row">
+    <div class="col-12">
+      <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>My Poker Games</h2>
+        <a href="{% url 'games.add' %}" class="btn btn-success">
+          <i class="fas fa-plus"></i> Add New Game
+        </a>
       </div>
-    </div>
-    <div class="row">
-      {% for movie in template_data.movies %}
-      <div class="col-md-4 col-lg-3 mb-2">
-        <div class="p-2 card align-items-center pt-4">
-          <img src="{% static 'img/about.jpg' %}"
-            class="card-img-top rounded">
-          <div class="card-body text-center">
-            {{ movie.name }}
+      
+      {% if messages %}
+        {% for message in messages %}
+          <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+      
+      <!-- Stats Cards -->
+      <div class="row mb-4">
+        <div class="col-md-6 mb-3">
+          <div class="card bg-primary text-white">
+            <div class="card-body">
+              <h5 class="card-title">Total Games</h5>
+              <h2 class="mb-0">{{ template_data.game_count }}</h2>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6 mb-3">
+          <div class="card {% if template_data.total_profit >= 0 %}bg-success{% else %}bg-danger{% endif %} text-white">
+            <div class="card-body">
+              <h5 class="card-title">Total Profit/Loss</h5>
+              <h2 class="mb-0">
+                {% if template_data.total_profit >= 0 %}+{% endif %}${{ template_data.total_profit }}
+              </h2>
+            </div>
           </div>
         </div>
       </div>
-      {% endfor %}
+      
+      <!-- Games Table -->
+      {% if template_data.games %}
+        <div class="card">
+          <div class="card-header bg-dark text-white">
+            <h5 class="mb-0">Game History</h5>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-hover mb-0">
+                <thead class="table-light">
+                  <thead class="table-light">
+                  <tr>
+                    <th>ID</th>
+                    <th>Game Name</th>
+                    <th>Player #</th>  <!-- ⬅️ NEW COLUMN -->
+                    <th>Date</th>
+                    <th>Profit/Loss</th>
+                    <th>Data File</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for game in template_data.games %}
+                  <tr>
+                    <td><strong>#{{ game.id }}</strong></td>
+                    <td>{{ game.name }}</td>
+                    <td><span class="badge bg-primary">P{{ game.player_number }}</span></td>  <!-- ⬅️ NEW CELL -->
+                    <td>{{ game.date|date:"M d, Y - g:i A" }}</td>
+                    <td>
+                      <span class="badge {% if game.profit >= 0 %}bg-success{% else %}bg-danger{% endif %}">
+                        {% if game.profit >= 0 %}+{% endif %}${{ game.profit }}
+                      </span>
+                    </td>
+                    <td>
+                      {% if game.game_data %}
+                        <a href="{{ game.game_data.url }}" class="btn btn-sm btn-outline-primary" download>
+                          <i class="fas fa-download"></i> Download
+                        </a>
+                      {% else %}
+                        <span class="text-muted">No file</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      <a href="{% url 'games.view' game.id %}" class="btn btn-sm btn-info">
+                        <i class="fas fa-eye"></i> View
+                      </a>
+                      <a href="{% url 'games.delete' game.id %}" class="btn btn-sm btn-danger">
+                        <i class="fas fa-trash"></i> Delete
+                      </a>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      {% else %}
+        <div class="alert alert-info text-center">
+          <i class="fas fa-info-circle fa-3x mb-3"></i>
+          <h4>No games yet!</h4>
+          <p>Start by adding your first poker game using the button above.</p>
+        </div>
+      {% endif %}
     </div>
   </div>
 </div>
