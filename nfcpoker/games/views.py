@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from .models import Game
 from .forms import GameForm
+import json
 
 
 @login_required
@@ -68,17 +69,27 @@ def view_game(request, game_id):
     
     # Parse game data if file exists
     game_details = None
+    game_details_json = None
     if game.game_data:
         try:
+            # Read file content
             game_data_content = game.game_data.read().decode('utf-8')
+            game.game_data.seek(0)  # Reset file pointer for future reads
+            
+            # Parse the data
             game_details = parse_game_data(game_data_content)
+            
+            # Convert to JSON for JavaScript (only if parsing succeeded)
+            if game_details:
+                game_details_json = json.dumps(game_details)
         except Exception as e:
             messages.warning(request, f'Could not parse game data: {str(e)}')
     
     template_data = {
         'title': f'Game #{game.id}',
         'game': game,
-        'game_details': game_details
+        'game_details': game_details,
+        'game_details_json': game_details_json
     }
     return render(request, 'games/view_game.html', {'template_data': template_data})
 
@@ -146,7 +157,7 @@ def parse_game_data(content):
                 'stacks': [],
                 'actions': [],
                 'winners': [],
-                'bets': {}  # Track total bets per player {player_num: total_bet}
+                'bets': {}
             }
         elif line.startswith('dealer:') and current_hand:
             current_hand['dealer'] = int(line.split(':')[1])
@@ -195,7 +206,6 @@ def parse_game_data(content):
                         # Raise: r-100 means raise by 100 (additional bet)
                         bet_amount = int(action.split('-')[1])
                         current_hand['bets'][player_num] += bet_amount
-                    # f-X, b-X could be fold/bet variants - ignore for now
                     
                     current_hand['actions'].append(line)
                 except (ValueError, IndexError):
@@ -222,14 +232,12 @@ def calculate_player_profit(game_details, player_number):
         return profit
     
     # Method 2: Calculate using hand-by-hand stacks and the next hand's starting stack
-    # The "Stacks" line in each hand shows chips AFTER the previous hand completed
     hands = game_details.get('hands', [])
     
     if not hands:
         return 0
     
-    # If there are multiple hands, we can use the next hand's stack to see the result
-    final_chips = starting_pot  # Start with initial amount
+    final_chips = starting_pot
     
     for i, hand in enumerate(hands):
         # Check if there's a next hand
@@ -240,7 +248,6 @@ def calculate_player_profit(game_details, player_number):
                 final_chips = next_hand['stacks'][player_number - 1]
         else:
             # This is the last hand - we need to calculate
-            # Start with this hand's beginning stack
             if hand.get('stacks') and len(hand['stacks']) >= player_number:
                 starting_stack_this_hand = hand['stacks'][player_number - 1]
                 

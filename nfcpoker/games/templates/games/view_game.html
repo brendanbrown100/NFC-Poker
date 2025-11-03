@@ -32,7 +32,6 @@
             <strong>Game ID:</strong><br>
             #{{ template_data.game.id }}
             </div>
-            <!-- ⬅️ NEW SECTION -->
             <div class="col-md-2">
             <strong>Your Player #:</strong><br>
             <span class="badge bg-primary fs-6">P{{ template_data.game.player_number }}</span>
@@ -42,17 +41,17 @@
             {{ template_data.game.date|date:"M d, Y" }}<br>
             {{ template_data.game.date|date:"g:i A" }}
             </div>
-            <div class="col-md-2">  <!-- ⬅️ Changed from col-md-3 -->
-            <strong>Your Profit/Loss:</strong><br>  <!-- ⬅️ Added "Your" -->
+            <div class="col-md-2">
+            <strong>Your Profit/Loss:</strong><br>
             <span class="badge {% if template_data.game.profit >= 0 %}bg-success{% else %}bg-danger{% endif %} fs-6">
                 {% if template_data.game.profit >= 0 %}+{% endif %}${{ template_data.game.profit }}
             </span>
             </div>
-            <div class="col-md-2">  <!-- ⬅️ Changed from col-md-3 -->
+            <div class="col-md-2">
             <strong>Game Data:</strong><br>
             {% if template_data.game.game_data %}
                 <a href="{{ template_data.game.game_data.url }}" class="btn btn-sm btn-primary" download>
-                <i class="fas fa-download"></i> Download  <!-- ⬅️ Shortened button text -->
+                <i class="fas fa-download"></i> Download
                 </a>
             {% else %}
                 <span class="text-muted">No file uploaded</span>
@@ -61,7 +60,8 @@
         </div>
         </div>
       </div>
-      <!-- Game Details from Parsed Data -->
+
+      <!-- Game Configuration -->
       {% if template_data.game_details %}
         <div class="card mb-4">
           <div class="card-header bg-info text-white">
@@ -97,11 +97,11 @@
             </div>
             <div class="card-body">
               {% for hand in template_data.game_details.hands %}
-                <div class="card mb-3">
-                  <div class="card-header">
+                <div class="card mb-4 shadow-sm">
+                  <div class="card-header bg-light">
                     <strong>Hand #{{ hand.hand_number }}</strong>
                     {% if hand.dealer is not None %}
-                      - Dealer: Player {{ hand.dealer|add:1 }}
+                      <span class="text-muted ms-2">(Dealer: Player {{ hand.dealer|add:1 }})</span>
                     {% endif %}
                   </div>
                   <div class="card-body">
@@ -111,9 +111,7 @@
                         <div class="row mt-2">
                           {% for stack in hand.stacks %}
                             <div class="col-md-2">
-                              <div class="badge bg-secondary">
-                                P{{ forloop.counter }}: ${{ stack }}
-                              </div>
+                              <span class="badge bg-secondary">P{{ forloop.counter }}: ${{ stack }}</span>
                             </div>
                           {% endfor %}
                         </div>
@@ -121,37 +119,59 @@
                     {% endif %}
                     
                     {% if hand.winners %}
-                      <div>
+                      <div class="mb-3">
                         <strong>Winners:</strong>
-                        <ul class="list-unstyled mt-2">
+                        <div class="mt-2">
                           {% for winner in hand.winners %}
-                            <li>
-                              <span class="badge bg-success">
-                                Player {{ winner.player }} won ${{ winner.amount }}
-                              </span>
-                            </li>
-                          {% endfor %}
-                        </ul>
-                      </div>
-                    {% endif %}
-                    
-                    {% if hand.actions %}
-                      <div class="mt-3">
-                        <strong>Actions:</strong>
-                        <div class="mt-2" style="max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.9em;">
-                          {% for action in hand.actions %}
-                            <div>{{ action }}</div>
+                            <span class="badge bg-success me-1">Player {{ winner.player }} +${{ winner.amount }}</span>
                           {% endfor %}
                         </div>
                       </div>
                     {% endif %}
+                    
+
+                    <!-- 🃏 Individual Hand Visual Replay Canvas -->
+                    <div class="border-top pt-3 mt-3">
+                      <h6 class="text-muted mb-2"><i class="fas fa-play-circle"></i> Visual Replay for Hand {{ hand.hand_number }}</h6>
+                      <div id="hand-visual-{{ forloop.counter0 }}" class="hand-visual-container"></div>
+                    </div>
                   </div>
                 </div>
               {% endfor %}
             </div>
           </div>
         {% endif %}
-        
+
+        <!-- Initialize multi-hand visual replays -->
+        {% if template_data.game_details_json %}
+        <script>
+          const gameData = {{ template_data.game_details_json|safe }};
+          gameData.user_player = {{ template_data.game.player_number }};
+        </script>
+        <script>
+          // Inject each visual replay under its hand section
+          document.addEventListener('DOMContentLoaded', () => {
+            if (typeof gameData !== 'undefined') {
+              // Create a mini subset for each hand replay container
+              gameData.hands.forEach((hand, idx) => {
+                const subContainer = document.getElementById(`hand-visual-${idx}`);
+                if (!subContainer) return;
+
+                // deep-copy only the data needed for this one hand
+                const miniData = JSON.parse(JSON.stringify(gameData));
+                miniData.hands = [hand];
+
+                // ensure the hand number inside matches this hand’s data
+                miniData.hands[0].hand_number = hand.hand_number;
+                new PokerMultiReplay(miniData, `hand-visual-${idx}`);
+              });
+
+            }
+          });
+        </script>
+        {% endif %}
+
+                
         <!-- Final Winner -->
         {% if template_data.game_details.winner %}
           <div class="card mb-4 border-success">
@@ -189,4 +209,35 @@
     </div>
   </div>
 </div>
+
+{% if template_data.game_details_json %}
+<script src="{% static 'js/game-replay.js' %}"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+  if (!window.gameData || !Array.isArray(gameData.hands)) return;
+
+  gameData.hands.forEach((hand, idx) => {
+    const containerId = `hand-visual-${idx}`;
+    const container = document.getElementById(containerId);
+    if (!container) {
+      console.warn(`⚠️ No container found for ${containerId}`);
+      return;
+    }
+
+    const miniData = JSON.parse(JSON.stringify(gameData));
+    miniData.hands = [hand];
+    miniData.hands[0].hand_number = hand.hand_number;
+
+    try {
+      new PokerMultiReplay(miniData, containerId);
+    } catch (err) {
+      console.error(`❌ Error rendering hand ${hand.hand_number}:`, err);
+    }
+  });
+});
+</script>
+{% endif %}
+
+
+
 {% endblock content %}
