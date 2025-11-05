@@ -42,6 +42,8 @@
           <div class="navbar-nav ms-auto navbar-ml">
             <a class="nav-link"
                href="{% url 'home.about' %}">About</a>
+            <a class="nav-link"
+                href="{% url 'home.announcements' %}">Announcements</a>
             {% if user.is_authenticated %}
             <a class="nav-link"
                href="{% url 'games.index' %}">My Games</a>

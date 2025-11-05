@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block content %}
+<header class="masthead bg-index text-black text-center py-4">
+  <div class="container d-flex align-items-center flex-column pt-2">
+    <h2>Announcements</h2>
+  </div>
+</header>
+<div class="p-3">
+  <div class="container">
+    <div class="row mt-3">
+      <div class="col mx-auto text-center mb-3">
+        {% for announcement in announcements %}
+          <div class="card mb-4">
+            <div class="card-header bg-dark text-white">
+              <h5 class="mb-0">{{ announcement.title }}</h5>
+            </div>
+            <div class="card-body text-start">
+              <p>{{ announcement.content }}</p>
+              <small class="text-muted">Posted on {{ announcement.created_at|date:"M d, Y H:i" }}</small>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}
