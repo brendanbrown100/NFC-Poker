@@ -121,11 +121,20 @@ def delete_game(request, game_id):
 
 
 def parse_game_data(content):
-    """Parse the game data from the Arduino-generated text file"""
+    """
+    Parse the game data from the Arduino-generated text file
+    
+    NEW FORMAT:
+    pot:[pot1,pot2,pot3,...]  - Array of starting chips per player
+    
+    OLD FORMAT (still supported):
+    pot:1000  - Single value, same starting chips for all players
+    """
     lines = content.strip().split('\n')
     data = {
         'players': 0,
-        'starting_pot': 0,
+        'starting_pots': [],  # NEW: Array of starting chips per player
+        'starting_pot': 0,     # OLD: Kept for backwards compatibility
         'small_blind': 0,
         'big_blind': 0,
         'hands': [],
@@ -142,12 +151,29 @@ def parse_game_data(content):
             
         if line.startswith('players:'):
             data['players'] = int(line.split(':')[1])
+            
         elif line.startswith('pot:'):
-            data['starting_pot'] = int(line.split(':')[1])
+            # Parse pot - check if it's array format or single value
+            pot_data = line.split(':', 1)[1].strip()
+            
+            if pot_data.startswith('['):
+                # NEW FORMAT: pot:[1000,1000,1000]
+                pot_str = pot_data.split('[')[1].split(']')[0]
+                data['starting_pots'] = [int(x.strip()) for x in pot_str.split(',')]
+                # Set starting_pot to first player's value for backwards compatibility
+                data['starting_pot'] = 0
+            else:
+                # OLD FORMAT: pot:1000
+                starting_pot = int(pot_data)
+                data['starting_pot'] = starting_pot
+                # Will populate starting_pots array once we know number of players
+                
         elif line.startswith('sb:'):
             data['small_blind'] = int(line.split(':')[1])
+            
         elif line.startswith('bb:'):
             data['big_blind'] = int(line.split(':')[1])
+            
         elif line.startswith('hand:'):
             if current_hand:
                 data['hands'].append(current_hand)
@@ -159,18 +185,22 @@ def parse_game_data(content):
                 'winners': [],
                 'bets': {}
             }
+            
         elif line.startswith('dealer:') and current_hand:
             current_hand['dealer'] = int(line.split(':')[1])
+            
         elif line.startswith('Stacks:') and current_hand:
             # Parse stacks like: Stacks:[1000,1000,1000]
             stacks_str = line.split('[')[1].split(']')[0]
-            current_hand['stacks'] = [int(x) for x in stacks_str.split(',')]
+            current_hand['stacks'] = [int(x.strip()) for x in stacks_str.split(',')]
+            
         elif line.startswith('W-p') and current_hand:
             # Parse winner like: W-p3:450
             parts = line.split(':')
             player = int(parts[0].replace('W-p', ''))
             amount = int(parts[1])
             current_hand['winners'].append({'player': player, 'amount': amount})
+            
         elif line.startswith('Winner:p'):
             # Final winner - parse like "Winner:p1-2500"
             parts = line.split(':')[1].split('-')
@@ -181,6 +211,7 @@ def parse_game_data(content):
                 'final_chips': final_chips
             }
             data['final_stacks'][player_num] = final_chips
+            
         elif current_hand and ':' in line:
             # Parse betting actions like: p3:sb, p3:bb, p3:c-100, p3:r-50, p3:F
             parts = line.split(':')
@@ -218,17 +249,33 @@ def parse_game_data(content):
     if current_hand:
         data['hands'].append(current_hand)
     
+    # Backwards compatibility: If using old format, populate starting_pots array
+    if not data['starting_pots'] and data['starting_pot'] > 0 and data['players'] > 0:
+        data['starting_pots'] = [data['starting_pot']] * data['players']
+    
     return data
 
 
 def calculate_player_profit(game_details, player_number):
-    """Calculate profit/loss for a specific player"""
-    starting_pot = game_details.get('starting_pot', 0)
+    """
+    Calculate profit/loss for a specific player
+    
+    NEW: Uses per-player starting chips from starting_pots array
+    """
+    # Get starting chips for this specific player
+    starting_pots = game_details.get('starting_pots', [])
+    
+    if starting_pots and len(starting_pots) >= player_number:
+        # NEW FORMAT: Use player-specific starting chips
+        starting_chips = starting_pots[player_number - 1]
+    else:
+        # OLD FORMAT: Fall back to single starting_pot value
+        starting_chips = game_details.get('starting_pot', 0)
     
     # Method 1: If we have final winner data with exact chips
     if game_details.get('final_stacks') and player_number in game_details['final_stacks']:
         final_chips = game_details['final_stacks'][player_number]
-        profit = final_chips - starting_pot
+        profit = final_chips - starting_chips
         return profit
     
     # Method 2: Calculate using hand-by-hand stacks and the next hand's starting stack
@@ -237,7 +284,7 @@ def calculate_player_profit(game_details, player_number):
     if not hands:
         return 0
     
-    final_chips = starting_pot
+    final_chips = starting_chips
     
     for i, hand in enumerate(hands):
         # Check if there's a next hand
@@ -263,5 +310,5 @@ def calculate_player_profit(game_details, player_number):
                 # Final chips = starting stack of this hand - bets + winnings
                 final_chips = starting_stack_this_hand - bets + winnings
     
-    profit = final_chips - starting_pot
+    profit = final_chips - starting_chips
     return profit

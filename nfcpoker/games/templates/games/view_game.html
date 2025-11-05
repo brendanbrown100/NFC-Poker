@@ -73,10 +73,12 @@
                 <strong>Number of Players:</strong><br>
                 {{ template_data.game_details.players }}
               </div>
+              {% if template_data.game_details.starting_pot != 0 %}
               <div class="col-md-3">
                 <strong>Starting Chips:</strong><br>
                 ${{ template_data.game_details.starting_pot }}
               </div>
+              {% endif %}
               <div class="col-md-3">
                 <strong>Small Blind:</strong><br>
                 ${{ template_data.game_details.small_blind }}
