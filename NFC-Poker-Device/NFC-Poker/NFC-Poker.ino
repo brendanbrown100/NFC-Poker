@@ -43,12 +43,11 @@ const String RECORDS_DIR = "Records";
 String filePath;      // e.g. "Records/NFCINF3.txt"
 uint8_t fileIndex = 0;
 String  fileName;
-int startingChips = 1000;
+int startingChips = 0;
 int smallBlind = 10;
 int bigBlind = 20;
 int winnings = 0;
 int inGameTot = 0;
-
 
 
 String inputBuffer = "";
@@ -65,10 +64,6 @@ bool isAllIn[MAX_PLAYERS];  // track players who have gone all‑in (and can’t
 String scannedUIDs[52];
 int totalScanned = 0;
 int pot = 0;
-String masterKeyStr[2] = {
- "1EC30E02",
- "21F41605"
-};
 
 // Mapping of UIDs to playing cards
 String knownUIDs[52] = {
@@ -343,32 +338,6 @@ void dealHoleCards() {
       }
     }
   }
-  myFile.close();
-}
-
-
-int countNotFolded() {
-  int c = 0;
-  for (int i = 0; i < numPlayers; ++i) {
-    if (inGame[i] && !hasFolded[i]) ++c;
-  }
-  return c;
-}
-
-void resetAfterRaise(int raiser) {
-  for (int i = 0; i < numPlayers; ++i) {
-    if (!hasFolded[i] && !isAllIn[i]) {
-      hasActed[i] = (i == raiser);  // raiser has acted; others now must respond
-    }
-  }
-}
-
-
-int countAbleToAct() {             // can still take betting actions
-  int c = 0;
-  for (int i = 0; i < numPlayers; ++i)
-    if (inGame[i] && !hasFolded[i] && !isAllIn[i]) ++c;
-  return c;
 }
 
 void sdErrorScreen() {
@@ -430,7 +399,7 @@ void bettingRound() {
   int lastRaiser = -1;
   int current = 0;
   currentBet = 0;
-  //bool hasActed[MAX_PLAYERS];  // Track if each player acted
+  bool hasActed[MAX_PLAYERS];  // Track if each player acted
   int minRaise = 0;
   int activePlayers = 0;
 
@@ -438,9 +407,10 @@ void bettingRound() {
 
   for (int i = 0; i < numPlayers; i++) {
     if (inGame[i] && playerChips[i] > 0 && !isAllIn[i]) activePlayers++;
-    isAllIn[i] = (playerChips[i] == 0);
-    hasActed[i] = hasFolded[i];   // folded seats are “done”
-    playerBets[i] = 0;
+    if (playerChips[i] == 0) isAllIn[i]   = true;
+    else isAllIn[i] = false;
+    hasActed[i]  = hasFolded[i];    // your existing line
+    playerBets[i] = 0;              // your existing line
   }
 
   if (preFlop) {
@@ -453,22 +423,22 @@ void bettingRound() {
     // heads-up: only BB posts
     if (activePlayers == 2) {
       // post BB only
-      int toPost = min(playerChips[sb], bigBlind);
-      playerBets[sb]   = toPost;
-      playerChips[sb] -= toPost;
+      int toPost = min(playerChips[bb], bigBlind);
+      playerBets[bb]   = toPost;
+      playerChips[bb] -= toPost;
       pot              = toPost;
 
       // log just the big blind
       myFile = SD.open(filePath, FILE_WRITE);
       if (myFile) {
-        myFile.println("p" + String(sb + 1) + ":bb");
+        myFile.println("p" + String(bb + 1) + ":bb");
         myFile.close();
       } else {
         sdErrorScreen();
       }
 
       currentBet   = toPost;
-      lastRaiser   = sb;
+      lastRaiser   = bb;
       // first action is dealer (acts first heads-up)
       current      = dealerPos;
       minRaise = toPost;
@@ -509,26 +479,21 @@ void bettingRound() {
   myFile = SD.open(filePath, FILE_WRITE);
   if (!myFile) sdErrorScreen();
   while (!roundComplete) {
-    // if only one player remains, end the round immediately
-    if (countNotFolded() <= 1) {
-      roundComplete = true;
-      break;
-    }
-
-    if (hasFolded[current] || isAllIn[current]) { 
-      current = (current + 1) % numPlayers; 
-      continue; 
+    if (hasFolded[current] || isAllIn[current]) {
+      current = (current + 1) % numPlayers;
+      continue;
     }
 
     printScreen(current, pot);
     lcd.setCursor(0, 3);
     lcd.print("$" + String(currentBet - playerBets[current]) + " To Call");
-
+    
     bool actionTaken = false;
+    if (!isGameAlive()) roundComplete = true;
+
     while (!actionTaken) {
-      if (countNotFolded() == 1) {
-        roundComplete = true;
-        break;
+      if (hasFolded[current] || isAllIn[current]) {
+        actionTaken = true;
       }
       char key = getDebouncedKey();
       if (key) {
@@ -545,22 +510,19 @@ void bettingRound() {
             currentBet            = playerBets[current];
             minRaise              = contrib - toCall;
             lastRaiser            = current;
-            isAllIn[current]      = true;
-            resetAfterRaise(current);
-            actionTaken           = true;
           } else {
             // All‑in call (not enough to cover full bet)
             contrib          = stack;
             playerChips[current] = 0;
             playerBets[current]  += contrib;
-            isAllIn[current] = true;
-            hasActed[current] = true;
-            actionTaken = true;
           }
 
           pot              += contrib;
+          isAllIn[current]  = true;    // can’t act any more
+          hasActed[current] = true;
+          actionTaken       = true;
 
-          if (myFile) myFile.println("p" + String(current+1) + ":a-" + String(contrib));
+          if (myFile) myFile.println("p" + String(current+1) + ":A-" + String(contrib));
           printScreen(current, pot);
           lcd.setCursor(0,3);
           lcd.print("P" + String(current+1) + " ALL IN $" + String(contrib));
@@ -596,7 +558,6 @@ void bettingRound() {
             lcd.setCursor(0, 3);
             lcd.print("Insufficient chips  ");
             delay(1000);
-            lcd.print("                    ");
           }
         } else if (key == 'D') {
             if (!collectingRaise) {
@@ -619,8 +580,6 @@ void bettingRound() {
                 minRaise = raiseAmt;
                 currentBet += raiseAmt;
                 lastRaiser = current;
-
-                resetAfterRaise(current);
                 hasActed[current] = true;
                 actionTaken = true;
 
@@ -655,15 +614,13 @@ void bettingRound() {
     delay(1000);
     current = (current + 1) % numPlayers;
 
-    if (countNotFolded() <= 1) { break; }
-
     // Check if all active players have called or folded
     bool allMatched = true;
     for (int i = 0; i < numPlayers; i++) {
-      if (!hasFolded[i] && !isAllIn[i]) {
-        if (playerBets[i] != currentBet || !hasActed[i]) {
-          allMatched = false; break;
-        }
+      if (!hasFolded[i] && !isAllIn[i]
+          && (!hasActed[i] || playerBets[i] != currentBet)) {
+        allMatched = false;
+        break;
       }
     }
 
@@ -727,38 +684,13 @@ void setup() {
   lcd.print(fileName);
   delay(1500);
 
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Scan Master Card    ");
-  lcd.setCursor(0, 1);
-  lcd.print("Or Press D          ");
-  while (true) {
-    // 1) Check keypad first
-    char key = getDebouncedKey();
-    if (key == 'D') {
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("Cards Will Be Masked");
-      delay(1500);
-      break;
-    }
 
-    // 2) Then do a NON-BLOCKING NFC poll (small timeout)
-    uint8_t uid[7]; 
-    uint8_t uidLen;
-    if (nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLen, 50)) {
-      String uidStr = uidToString(uid, uidLen);
-      if (uidStr == masterKeyStr[0] || uidStr == masterKeyStr[1]) {
-        showCards = true;
-        lcd.clear();
-        lcd.print("Showing Cards       ");
-        delay(1500);
-        break;
-      }
-    }
-
-    // small yield to avoid tight spin
-    delay(5);
+  pass = getNumberFromKeypad("Password?           ");
+  if (pass == key) {
+    lcd.clear();
+    lcd.print("Correct");
+    showCards = true;
+    delay(2000);
   }
 
   numPlayers = getNumberFromKeypad("Players 2-6:        ");
@@ -766,33 +698,20 @@ void setup() {
   if (numPlayers > 6) numPlayers = 6;
 
 
-  bool equalFlag = ( getNumberFromKeypad("Equal stacks?       ","1=Yes 0=No          ") == 1 );
+  bool equalFlag = ( getNumberFromKeypad("Equal stacks?","1=Yes 0=No") == 1 );
 
   if (equalFlag) {
-    startingChips = getNumberFromKeypad("Starting chip size? ");
-    if (startingChips) {
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("Start Chips: $1000");
-      delay(1500);
-    }
+    startingChips = getNumberFromKeypad("Starting chip size?");
     for (int i = 0; i < numPlayers; i++) {
       playerChips[i] = startingChips;
     }
   } else {
     for (int i = 0; i < numPlayers; i++) {
-      playerChips[i] = getNumberFromKeypad("Chips for P" + String(i+1) + "        ");
+      playerChips[i] = getNumberFromKeypad("Chips for P" + String(i+1));
     }
   }
 
-  bigBlind = getNumberFromKeypad("Big-Blinds size?    ", "Must be 2|x         ");
-  if (bigBlind < 2 || bigBlind % 2 != 0) {
-    bigBlind = 10;
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("BIG BLIND : $10     ");
-    delay(2000);
-  }
+  bigBlind = getNumberFromKeypad("Big-Blinds size?");
   smallBlind = bigBlind / 2;
 
 
@@ -809,7 +728,15 @@ void setup() {
 
   if (myFile) {
     myFile.println("players:" + String(numPlayers));
-    myFile.println("pot:" + String(startingChips));
+    myFile.print("pot:");
+    if (startingChips > 0) myFile.println(String(startingChips));
+    else {
+      for (int i = 0; i < numPlayers; i++) {
+        if (i < numPlayers - 1) myFile.print(String(playerChips[i]) + ",");
+        else myFile.print(String(playerChips[i]));
+      }
+      myFile.println("]");
+    }
     myFile.println("sb:" + String(smallBlind));
     myFile.println("bb:" + String(bigBlind));
     myFile.println("Game Start");
@@ -843,17 +770,17 @@ void loop() {
       break;
     case PREFLOP:
       bettingRound();
-      gamePhase = (countNotFolded() <= 1 || countAbleToAct() <= 1) ? SHOWDOWN : FLOP;
+      isGameAlive() ? gamePhase = FLOP : gamePhase = SHOWDOWN;
       break;
     case FLOP:
       scanCommunity(0, 3);
       bettingRound();
-      gamePhase = (countNotFolded() <= 1 || countAbleToAct() <= 1) ? SHOWDOWN : TURN;
+      isGameAlive() ? gamePhase = TURN : gamePhase = SHOWDOWN;
       break;
     case TURN:
       scanCommunity(3, 1);
       bettingRound();
-      gamePhase = (countNotFolded() <= 1 || countAbleToAct() <= 1) ? SHOWDOWN : RIVER;
+      isGameAlive() ? gamePhase = RIVER : gamePhase = SHOWDOWN;
       break;
     case RIVER:
       scanCommunity(4, 1);
@@ -861,24 +788,18 @@ void loop() {
       gamePhase = SHOWDOWN;
       break;
     case SHOWDOWN:
-      if (countNotFolded() == 1) {
-        int winner = -1;
-        for (int i = 0; i < numPlayers; ++i) {
-          if (inGame[i] && !hasFolded[i]) { winner = i; break; }
-        }
-        if (winner >= 0) {
-          playerChips[winner] += pot;
-          myFile = SD.open(filePath, FILE_WRITE);
-          if (myFile) { myFile.println("W-p" + String(winner + 1) + ":" + String(pot)); myFile.close(); }
-          lcd.clear();
-          lcd.setCursor(0,0); lcd.print("Winner: P" + String(winner+1));
-          lcd.setCursor(0,1); lcd.print("Collected $" + String(pot));
-          delay(2000);
-          pot = 0;
-        }
-        gamePhase = WINNER;   // jump straight to overall winner check
-        break;
+    int activeCount = 0, lastIdx = -1;
+    for (int i = 0; i < numPlayers; ++i) {
+      if (!hasFolded[i]) {
+        activeCount++;
+        lastIdx = i;
       }
+    }
+    if (activeCount == 1) {
+      // skip all the community reveals, jump straight to WINNER
+      gamePhase = WINNER;
+      break;
+    }
       lcd.clear();
       lcd.print("Showdown");
       delay(1500);
@@ -888,7 +809,7 @@ void loop() {
       if (!myFile) sdErrorScreen();
 
       for (int i = 0; i < numPlayers; i++) {
-        if (hasFolded[i] && inGame[i]) continue;
+        if (hasFolded[i]) continue;
         
         winnings = getNumberFromKeypad("P" + String(i + 1) + " winnings?        ", "Pot: $" + String(pot));
         if (winnings > 0) {
@@ -898,7 +819,6 @@ void loop() {
           lcd.setCursor(0, 1);
           lcd.print("$" + String(winnings));
           playerChips[i] += winnings;
-          pot -= winnings;
           myFile.println("W-p" + String(i + 1) + ":" + String(winnings));
           delay(2500);
         }
@@ -927,33 +847,19 @@ void loop() {
         isAllIn[i]   = false;
       }
 
-      if (inGameTot == 1) {
-        gamePhase = WINNER; 
-        break;
-      }
-
       lcd.setCursor(0, 0);
-      lcd.print("     NFC POKER      ");
+      lcd.print("     NFC POKER     ");
       lcd.setCursor(0, 1);
       lcd.print("Hand: " + String(totalHands)); 
-      lcd.setCursor(0, 2);
-      lcd.print("Dealer: p" + String(dealerPos + 1));
-      lcd.setCursor(0, 3);
-      lcd.print("'D' To Continue     ");
-      while (true) {
-        char k = getDebouncedKey();
-        if (k == 'D') {
-          break;
-        }
-        delay(5);
-      }
+      delay(2500);
+      
+      if (inGameTot == 1) gamePhase = WINNER;
       break;
     case WINNER:
       for (int i = 0; i < numPlayers; i++) {
         if (playerChips[i] > 0) {
           myFile = SD.open(filePath, FILE_WRITE);
           myFile.println("Winner:p" + String(i + 1) + "-" + playerChips[i]);
-          myFile.close();
           lcd.clear();
           lcd.setCursor(0, 0);
           lcd.print("     NFC POKER      ");
@@ -963,7 +869,6 @@ void loop() {
           lcd.print("Total winnings:     ");
           lcd.setCursor(0, 3);
           lcd.print("$" + String(playerChips[i]));
-          delay(5000);
           while(true) {
             char k = getDebouncedKey();
             checkForReset(k);
